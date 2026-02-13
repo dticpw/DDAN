@@ -1,0 +1,106 @@
+# python3 train.py \
+# --data_name f30k_butd --cnn_type resnet152 --wemb_type glove \
+# --data_path /root/autodl-tmp/dataset/ \
+# --margin 0.2 --max_violation --img_num_embeds 4 --txt_num_embeds 4 \
+# --img_attention --txt_attention --img_finetune --txt_finetune \
+# --mmd_weight 0.01 --unif_weight 0.01 \
+# --batch_size 64 --warm_epoch 0 --num_epochs 120 \
+# --optimizer adamw --lr_scheduler cosine --lr_step_size 30 --lr_step_gamma 0.1 \
+# --warm_img --finetune_lr_lower 1 \
+# --lr 1e-3 --txt_lr_scale 1 --img_pie_lr_scale 0.1 --txt_pie_lr_scale 0.1 \
+# --eval_on_gpu --sync_bn --amp \
+# --loss smooth_chamfer --eval_similarity smooth_chamfer --temperature 16 \
+# --txt_pooling rnn --arch slot --txt_attention_input rnn \
+# --spm_img_pos_enc_type none --spm_txt_pos_enc_type sine \
+# --spm_1x1 --spm_residual --spm_residual_norm --spm_residual_activation none \
+# --spm_activation gelu \
+# --spm_ff_mult 4 --spm_last_ln \
+# --img_res_pool max --img_res_first_fc \
+# --spm_input_dim 1024 --spm_query_dim 1024 \
+# --spm_depth 4 --spm_weight_sharing \
+# --remark f30k_butd_bigru \
+# --res_only_norm --img_1x1_dropout 0.1 --spm_pre_norm \
+# --gpo_1x1 --gpo_rnn \
+# --weight_decay 1e-4 --grad_clip 1 --lr_warmup -1 --unif_residual \
+# --workers 4 --dropout 0.1 --caption_drop_prob 0.2 --butd_drop_prob 0.2
+
+# python3 train.py \
+# --data_name f30k_butd --cnn_type resnet152 --wemb_type glove \
+# --data_path /root/autodl-tmp/dataset/ \
+# --margin 0.2 --max_violation --img_num_embeds 4 --txt_num_embeds 4 \
+# --img_attention --txt_attention --img_finetune --txt_finetune \
+# --mmd_weight 0.01 --unif_weight 0.01 \
+# --batch_size 64 --warm_epoch 0 --num_epochs 120 \
+# --optimizer adamw --lr_scheduler cosine --lr_step_size 30 --lr_step_gamma 0.1 \
+# --warm_img --finetune_lr_lower 1 \
+# --lr 1e-3 --txt_lr_scale 1 --img_pie_lr_scale 0.1 --txt_pie_lr_scale 0.1 \
+# --eval_on_gpu --sync_bn --amp \
+# --loss smooth_chamfer --eval_similarity smooth_chamfer --temperature 16 \
+# --txt_pooling rnn --arch slot --txt_attention_input rnn \
+# --spm_img_pos_enc_type none --spm_txt_pos_enc_type sine \
+# --spm_1x1 --spm_residual --spm_residual_norm --spm_residual_activation none \
+# --spm_activation gelu \
+# --spm_ff_mult 4 --spm_last_ln \
+# --img_res_pool max --img_res_first_fc \
+# --spm_input_dim 1024 --spm_query_dim 1024 \
+# --spm_depth 4 --spm_weight_sharing \
+# --remark f30k_butd_bigru \
+# --res_only_norm --img_1x1_dropout 0.1 --spm_pre_norm \
+# --gpo_1x1 --gpo_rnn \
+# --weight_decay 1e-4 --grad_clip 1 --lr_warmup -1 --unif_residual \
+# --workers 4 --dropout 0.1 --caption_drop_prob 0.2 --butd_drop_prob 0.2
+
+# python3 eval.py \
+# --data_name f30k_butd --cnn_type resnet152 --wemb_type glove \
+# --data_path /root/autodl-tmp/dataset/ --use_bert \
+# --margin 0.2 --max_violation --img_num_embeds 4 --txt_num_embeds 4 \
+# --img_attention --txt_attention --img_finetune --txt_finetune \
+# --mmd_weight 0.01 --unif_weight 0.01 \
+# --batch_size 128 --warm_epoch 0 --num_epochs 80 \
+# --optimizer adamw --lr_scheduler cosine --lr_step_size 30 --lr_step_gamma 0.1 \
+# --warm_img --finetune_lr_lower 1 \
+# --lr 1e-3 --txt_lr_scale 1 --img_pie_lr_scale 0.1 --txt_pie_lr_scale 0.1 \
+# --eval_on_gpu --sync_bn --amp \
+# --loss smooth_chamfer --eval_similarity smooth_chamfer --temperature 16 \
+# --txt_pooling rnn --arch slot --txt_attention_input rnn \
+# --spm_img_pos_enc_type none --spm_txt_pos_enc_type sine \
+# --spm_1x1 --spm_residual --spm_residual_norm --spm_residual_activation none \
+# --spm_activation gelu \
+# --spm_ff_mult 4 --spm_last_ln \
+# --img_res_pool max --img_res_first_fc \
+# --spm_input_dim 1024 --spm_query_dim 1024 \
+# --spm_depth 4 --spm_weight_sharing \
+# --remark f30k_butd_bigru \
+# --res_only_norm --img_1x1_dropout 0.1 --spm_pre_norm \
+# --gpo_1x1 --gpo_rnn \
+# --weight_decay 1e-4 --grad_clip 1 --lr_warmup -1 --unif_residual \
+# --workers 4 --dropout 0.1 --caption_drop_prob 0.2 --butd_drop_prob 0.2
+
+python3 eval.py \
+--data_name f30k_butd --cnn_type resnet152 --wemb_type glove \
+--data_path /root/autodl-tmp/dataset/ \
+--margin 0.2 --max_violation --img_num_embeds 4 --txt_num_embeds 4 \
+--img_attention --txt_attention --img_finetune --txt_finetune \
+--mmd_weight 0.01 --unif_weight 0.01 \
+--batch_size 64 --warm_epoch 0 --num_epochs 120 \
+--optimizer adamw --lr_scheduler cosine --lr_step_size 30 --lr_step_gamma 0.1 \
+--warm_img --finetune_lr_lower 1 \
+--lr 1e-3 --txt_lr_scale 1 --img_pie_lr_scale 0.1 --txt_pie_lr_scale 0.1 \
+--eval_on_gpu --sync_bn --amp \
+--loss smooth_chamfer --eval_similarity smooth_chamfer --temperature 16 \
+--txt_pooling rnn --arch slot --txt_attention_input rnn \
+--spm_img_pos_enc_type none --spm_txt_pos_enc_type sine \
+--spm_1x1 --spm_residual --spm_residual_norm --spm_residual_activation none \
+--spm_activation gelu \
+--spm_ff_mult 4 --spm_last_ln \
+--img_res_pool max --img_res_first_fc \
+--spm_input_dim 1024 --spm_query_dim 1024 \
+--spm_depth 4 --spm_weight_sharing \
+--remark f30k_butd_bigru \
+--res_only_norm --img_1x1_dropout 0.1 --spm_pre_norm \
+--gpo_1x1 --gpo_rnn \
+--weight_decay 1e-4 --grad_clip 1 --lr_warmup -1 --unif_residual \
+--workers 4 --dropout 0.1 --caption_drop_prob 0.2 --butd_drop_prob 0.2
+
+
+# nohup sh train_eval_f30k.sh >> /I2T/DivE-main/runs/f30k_test1/sh0917.log >&1 &
