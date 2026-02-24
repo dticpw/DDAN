@@ -1100,7 +1100,8 @@ def get_loader_single(data_name, split, root, json, vocab, transform,
         shuffle=shuffle,
         pin_memory=True,
         num_workers=num_workers,
-        collate_fn=collate)
+        collate_fn=collate,
+        drop_last=True)
     return data_loader
 
 

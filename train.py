@@ -1,7 +1,8 @@
-import os 
+import os
 import math
 import shutil
 import pickle
+import random
 
 import torch
 import torch.nn as nn
@@ -133,7 +134,7 @@ def validate(dataset, data_loader, model, args, similarity_fn, validation, epoch
 
     nreps = 5 if args.data_name in ['f30k', 'coco', 'coco_butd', 'f30k_butd'] else 10
 
-    img_embs, txt_embs = encode_data(model, data_loader, 'butd' in args.data_name, args.eval_on_gpu)
+    img_embs, txt_embs, _, _ = encode_data(model, data_loader, 'butd' in args.data_name, args.eval_on_gpu)
     # 5fold cross-validation, only for MSCOCO
     mean_metrics = None
     if 'coco' in args.data_name and not validation:
@@ -251,6 +252,11 @@ def tri_mean_to_max(criterion, epoch, args):
         
 def main():
     args = verify_input_args(parser.parse_args())
+
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
     print(args)
     
     LOG_DIR = os.path.join(args.log_dir, args.remark)
@@ -278,6 +284,8 @@ def main():
         trn_loader, val_loader = data.get_loaders(args, vocab)  # captions, images, vocab # 一张图片，五段文本
     else:
         raise NotImplementedError
+    
+
 
     # Construct the model
     if 'butd' in args.data_name:
@@ -292,6 +300,27 @@ def main():
             model = convert_model(model)
         model = model.cuda()
         cudnn.benchmark = True
+    
+
+    img_params = sum(p.numel() for p in model.img_enc.parameters())
+    txt_params = sum(p.numel() for p in model.txt_enc.parameters())
+    total = sum(p.numel() for p in model.parameters())
+    logging.info(f'Image encoder: {img_params/1e6:.2f}M')
+    logging.info(f'Text encoder:  {txt_params/1e6:.2f}M')
+    logging.info(f'Total:         {total/1e6:.2f}M')
+
+    img_dda = (sum(p.numel() for p in model.img_enc.linear_softA.parameters()) +
+             sum(p.numel() for p in model.img_enc.linear_ESA1.parameters()) +
+             sum(p.numel() for p in model.img_enc.linear_ESA2.parameters()) +
+             sum(p.numel() for p in model.img_enc.linear_ESA3.parameters()) +
+             sum(p.numel() for p in model.img_enc.linear_ESA4.parameters()))
+    txt_dda = (sum(p.numel() for p in model.txt_enc.linear_softA.parameters()) +
+             sum(p.numel() for p in model.txt_enc.linear_ESA1.parameters()) +
+             sum(p.numel() for p in model.txt_enc.linear_ESA2.parameters()) +
+             sum(p.numel() for p in model.txt_enc.linear_ESA3.parameters()) +
+             sum(p.numel() for p in model.txt_enc.linear_ESA4.parameters()))
+    logging.info(f'DDA/DSM extra params: {(img_dda+txt_dda)/1e6:.2f}M')
+    
         
     wandb.watch(models=model, log_freq=1000, log='gradients')
     
@@ -360,7 +389,7 @@ def main():
     best_score = 0
 
     #### 1114
-    bottom_score = 528.0
+    bottom_score = 530.0
     
     # AMP
     scaler = torch.cuda.amp.GradScaler(enabled=args.amp)

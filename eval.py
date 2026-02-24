@@ -4,6 +4,7 @@ import pickle
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 from vocab import Vocabulary
 from model_pie import PVSE
@@ -11,26 +12,33 @@ from model_spm import VSE
 from data import get_test_loader, get_loaders
 from option import parser, verify_input_args
 from similarity import SetwiseSimilarity
- 
 
 from utils import visualize_and_save
 
 def cosine_sim(x, y):
     return x.mm(y.t())
 
+def l2norm(x):
+    """L2-normalize columns of x"""
+    return F.normalize(x, p=2, dim=-1)
+
 def encode_data(model, data_loader, butd, use_gpu=False):
     """Encode all images and sentences loadable by data_loader"""
     # switch to evaluate mode
     model.eval()
 
-    use_mil = model.module.mil if hasattr(model, 'module') else model.mil
+    use_mil = model.module.mil if hasattr(model, 'module') else model.mil # 1
 
     # numpy array to keep all the embeddings
-    img_embs, txt_embs = None, None
+    img_embs, txt_embs, img_oris, txt_oris = None, None, None, None
+
+    ### 找最长长度：
+    max_n_word_f30k = 77 # f30k_cal = 70
+
     ### for i, data in tqdm(enumerate(data_loader)):
     for i, data in enumerate(data_loader):
         if butd:
-            img, txt, img_len, txt_len, ids = data
+            img, txt, img_len, txt_len, ids = data # 不是shuffle=false吗？
             img, txt, img_len, txt_len = img.cuda(), txt.cuda(), img_len.cuda(), txt_len.cuda()
         else:
             img_len = None
@@ -38,23 +46,39 @@ def encode_data(model, data_loader, butd, use_gpu=False):
             img, txt, txt_len = img.cuda(), txt.cuda(), txt_len.cuda()
 
         # compute the embeddings
-        img_emb, txt_emb, _, _, _, _ = model.forward(img, txt, img_len, txt_len)
+        img_emb, txt_emb, _, _, img_ori, txt_ori = model.forward(img, txt, img_len, txt_len)
         del img, txt, img_len, txt_len
 
         # initialize the output embeddings
         if img_embs is None:
             img_emb_sz = [len(data_loader.dataset), img_emb.size(1), img_emb.size(2)] \
-                    if use_mil else [len(data_loader.dataset), img_emb.size(1)]
+                    if use_mil else [len(data_loader.dataset), img_emb.size(1)] # 1
             txt_emb_sz = [len(data_loader.dataset), txt_emb.size(1), txt_emb.size(2)] \
                     if use_mil else [len(data_loader.dataset), txt_emb.size(1)]
             img_embs = torch.zeros(img_emb_sz, dtype=img_emb.dtype, requires_grad=False).cuda()
             txt_embs = torch.zeros(txt_emb_sz, dtype=txt_emb.dtype, requires_grad=False).cuda()
 
-        # preserve the embeddings by copying from gpu and converting to numpy
-        img_embs[ids] = img_emb 
-        txt_embs[ids] = txt_emb 
+            #### 1121可视化
+            img_ori_sz = [len(data_loader.dataset), img_ori.size(1), img_ori.size(2)]
+            txt_ori_sz = [len(data_loader.dataset), max_n_word_f30k, txt_ori.size(2)]
+            img_oris = torch.zeros(img_ori_sz, dtype=img_emb.dtype, requires_grad=False).cuda() # 都是三大维的
+            txt_oris = torch.zeros(txt_ori_sz, dtype=txt_emb.dtype, requires_grad=False).cuda() ### 你得找到最长的那个句子的长度啊
 
-    return img_embs, txt_embs
+        # # preserve the embeddings by copying from gpu and converting to numpy
+        # img_embs[ids] = img_emb 
+        # txt_embs[ids] = txt_emb ## 这里顺序都改回来了
+
+        # #### 1121
+        # img_oris[ids] = img_ori
+        # txt_oris[ids,:txt_ori.size(1),:] = txt_ori # (5000,43,dim)
+        img_embs[ids] = l2norm(img_emb) 
+        txt_embs[ids] = l2norm(txt_emb) ## 这里顺序都改回来了
+        img_oris[ids] = l2norm(img_ori)
+        txt_oris[ids,:txt_ori.size(1),:] = l2norm(txt_ori) # (5000,43,dim)
+
+        # max_n_word_f30k = 77 
+
+    return img_embs, txt_embs, img_oris, txt_oris
 
 
 def i2t(images, sentences, similarity_fn, nreps=1, npts=None, return_ranks=False, use_gpu=False, is_cosine=True):
@@ -100,6 +124,10 @@ def i2t(images, sentences, similarity_fn, nreps=1, npts=None, return_ranks=False
             # find highest rank among matching queries
         ranks[index] = rank
         top1[index] = inds[0]
+    #### for visualization study
+    # ranks_vis = ranks.reshape(-1,50)
+    # ranks_vis = np.clip(ranks_vis, 0, 11)
+    # visualize_and_save(ranks_vis, 'runs/f30k_test1/pic/f30k_DCASN')
 
     # Compute metrics
     r1 = 100.0 * len(np.where(ranks < 1)[0]) / len(ranks)
@@ -186,24 +214,46 @@ def evalrank(model, args, split='test'):
             _, data_loader = get_loaders(args, vocab)
             dataset = data_loader.dataset
         elif split == 'test':
-            dataset, data_loader = None, get_test_loader(args, vocab)
+            dataset, data_loader = None, get_test_loader(args, vocab) ## shuffle = False
 
     print('Computing results... (eval_on_gpu={})'.format(args.eval_on_gpu))
-    img_embs, txt_embs = encode_data(model, data_loader, 'butd' in args.data_name, args.eval_on_gpu)
+    
+    # content = "\n".join(data_loader.dataset.captions)
 
-    #### 可视化一波
-    # img_emb2d_5times = img_embs.reshape(-1,img_embs.shape[-1])
-    # img_emb2d = img_emb2d_5times[::5]
-    # txt_emb2d = txt_embs.reshape(-1,txt_embs.shape[-1])
-    # cos_mat = cosine_sim(img_emb2d, txt_emb2d)
+    # # 将内容写入一个文本文件
+    # with open("/I2T/DivE-main/runs/f30k_test1/f30k_test.txt", "w", encoding="utf-8") as file:
+    #     file.write(content)
+
+    
+
+    img_embs, txt_embs, img_oris, txt_oris = encode_data(model, data_loader, 'butd' in args.data_name, args.eval_on_gpu)
+
+    # #### 可视化一波
+    img_embs3d1time = img_embs[::5]
+    img_embs2d = img_embs3d1time.reshape(-1,img_embs.shape[-1])
+    txt_embs2d = txt_embs.reshape(-1,txt_embs.shape[-1])
+    cos_mat = cosine_sim(img_embs2d, txt_embs2d)
+    # # step = 32
+    # # ministep = 8
+    # # for i in range(img_emb2d.shape[0]//step):
+    # #     sim_pic = torch.tensor([]).cuda()
+    # #     for j in range(step//ministep):
+    # #         cos_mat_temp = cos_mat[i*step+j*ministep:i*step+(j+1)*ministep, i*(step*5)+j*ministep:i*(step*5)+(j+1)*ministep]
+    # #         sim_pic = torch.cat((sim_pic, cos_mat_temp), dim=0)
+    # #     visualize_and_save(cos_mat_temp, args.img_folder)
+    # # print("image loaded!")
+
     # step = 8
+    # count = 0 
+    # sim_pic = torch.tensor([]).cuda()
     # for i in range(img_emb2d.shape[0]//step):
+    #     count += 1
     #     cos_mat_temp = cos_mat[i*step:(i+1)*step, i*(step*5):(i+1)*(step*5)]
-    #     visualize_and_save(cos_mat_temp, args.img_folder)
-    # print("image loaded!")
-    ####
-
-
+    #     sim_pic = torch.cat((sim_pic, cos_mat_temp), dim=0)
+    #     if count % 4 == 0:
+    #         visualize_and_save(sim_pic, args.img_folder)
+    #         sim_pic = torch.tensor([]).cuda()
+    # ####
     n_samples = img_embs.shape[0]
 
     nreps = 5
@@ -306,5 +356,5 @@ if __name__ == '__main__':
     model.load_state_dict(state_dict)
     with torch.no_grad():
         # evaluate
-        metrics = evalrank(model, args, split='val')
+        # metrics = evalrank(model, args, split='val')
         metrics = evalrank(model, args, split='test')

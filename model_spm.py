@@ -10,6 +10,8 @@ from agg_block.agg_block import AggregationBlock
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from einops import rearrange, reduce
 from transformers import BertModel
+from agg_block.attention import default
+from agg_block.agg_block import rank_A_mul_ESA
 
 def get_cnn(arch, pretrained):
     if arch == 'resnext_wsl':
@@ -60,7 +62,8 @@ def rank_A_mul_ESA(X, lengths=None, mask=None):
     A=A+1
     if mask != None:
         A = A.masked_fill(mask==0,1e6)
-    rankA = 1/(A**2)
+    # rankA = (torch.exp(-A))
+    rankA = 1 / (A)
     return rankA, B
 
 
@@ -224,9 +227,9 @@ class VSE(nn.Module):
 
     def forward(self, images, sentences, img_len, txt_len): # (200,34,2048),((vocab编号)1000,68), ((还真有img_len啊)200),(1000)
         with torch.cuda.amp.autocast(enabled=self.amp):
-            img_emb, img_attn, img_residual = self.img_enc(images, img_len)     # (bs, 4, dim), none, (bs, 4, 1024)
-            txt_emb, txt_attn, txt_residual = self.txt_enc(sentences, txt_len)  # (5bs, 4, dim), none, (5bs, 4, 1024)
-            return img_emb, txt_emb, img_attn, txt_attn, img_residual, txt_residual
+            img_emb, img_attn, img_ori = self.img_enc(images, img_len)     # (bs, 4, dim), none, (bs, 4, 1024)
+            txt_emb, txt_attn, txt_ori = self.txt_enc(sentences, txt_len)  # (5bs, 4, dim), none, (5bs, 4, 1024)
+            return img_emb, txt_emb, img_attn, txt_attn, img_ori, txt_ori
         
         
 class SequenceBN(nn.Module):
@@ -323,6 +326,9 @@ class EncoderImage(nn.Module):
             nn.LeakyReLU(),
             nn.Linear(embed_size * 2, embed_size),
         )
+        # Temperature parameters for different aggregation strategies
+        self.tau_selective = opt.tau_selective      # Channel 2
+        self.tau_comprehensive = opt.tau_comprehensive  # Channel 3
         
         self.fc = nn.Linear(local_feat_dim, opt.embed_size)
         if opt.gpo_1x1: # 1
@@ -413,14 +419,15 @@ class EncoderImage(nn.Module):
         posmask = ~mask
         features_in1 = self.linear_ESA1(img_rank_mul)
         features_in1 = features_in1.masked_fill(posmask == 0,-10000)
-        # if self.training:
-        #     rand_list_1 = torch.rand(img_emb.size(0), img_emb.size(1)).to(img_emb.device)
-        #     mask1 =(rand_list_1 >= 0.2).unsqueeze(-1)
-        #     features_in1 = features_in1.masked_fill(mask1 == 0,-10000)
+        if self.training:
+            rand_list_1 = torch.rand(img_emb.size(0), img_emb.size(1)).to(img_emb.device)
+            mask1 =(rand_list_1 >= 0.2).unsqueeze(-1)
+            features_in1 = features_in1.masked_fill(mask1 == 0,-10000)
         features_k_softmax1 = nn.Softmax(dim=1)(features_in1-torch.max(features_in1,dim=1)[0].unsqueeze(1)) # 这为什么全是同样的数？这还有用吗
         img_glo1 = torch.sum(features_k_softmax1 * img_emb, dim=1)
 
         features_in2 = self.linear_ESA2(img_rank_mul)
+        features_in2 = features_in2 / self.tau_selective ## scale 20260218
         features_in2 = features_in2.masked_fill(posmask == 0,-10000)
         if self.training:
             rand_list_2 = torch.rand(img_emb.size(0), img_emb.size(1)).to(img_emb.device)
@@ -430,6 +437,7 @@ class EncoderImage(nn.Module):
         img_glo2 = torch.sum(features_k_softmax2 * img_emb, dim=1) 
 
         features_in3 = self.linear_ESA3(img_rank_mul)
+        features_in3 = features_in3 / self.tau_comprehensive
         features_in3 = features_in3.masked_fill(posmask == 0,-10000)
         if self.training:
             rand_list_3 = torch.rand(img_emb.size(0), img_emb.size(1)).to(img_emb.device)
@@ -439,6 +447,7 @@ class EncoderImage(nn.Module):
         img_glo3 = torch.sum(features_k_softmax3 * img_emb, dim=1) 
 
         features_in4 = self.linear_ESA4(img_rank_mul)
+        # features_in4 = features_in4 + img_rank_mul  # Residual
         features_in4 = features_in4.masked_fill(posmask == 0,-10000)
         if self.training:
             rand_list_4 = torch.rand(img_emb.size(0), img_emb.size(1)).to(img_emb.device)
@@ -448,6 +457,8 @@ class EncoderImage(nn.Module):
         img_glo4 = torch.sum(features_k_softmax4 * img_emb, dim=1) 
 
         img_glo_cro = x = torch.stack((img_glo1,img_glo2,img_glo3,img_glo4), dim=1)
+        # img_glo_r = img_glo_cro
+        img_glo_soft = nn.Softmax(dim=1)(img_glo_cro)
         img_glo_cro = nn.Softmax(dim=1)(img_glo_cro) + img_glo_cro
         img_glo_cro = l2norm(img_glo_cro) # (bs,4,dim)
 
@@ -461,9 +472,10 @@ class EncoderImage(nn.Module):
         attn = None
 
         out = l2norm(out) # (bs,4,1024)
-        residual = out
 
-        return out, attn, residual
+        img_ori = l2norm(img_emb)
+
+        return out, attn, img_glo_soft
 
 
 
@@ -544,6 +556,8 @@ class EncoderText(nn.Module):
             nn.LeakyReLU(),
             nn.Linear(embed_size * 2, embed_size),
         )
+        self.tau_selective = opt.tau_selective      # Channel 2
+        self.tau_comprehensive = opt.tau_comprehensive  # Channel 3
 
         
         if opt.arch == 'pvse':
@@ -613,7 +627,7 @@ class EncoderText(nn.Module):
         wemb_out = self.dropout(wemb_out) # Dropout(0.1)
 
         # Forward propagate RNNs
-        packed = pack_padded_sequence(wemb_out, lengths.cpu(), batch_first=True) # .cpu()? # 打包成一个适合rnn处理的结构
+        packed = pack_padded_sequence(wemb_out, lengths.cpu(), batch_first=True) # .cpu()? # 是这lengths要求长度必须是从大到小排列的，所以映射来映射去
         if torch.cuda.device_count() > 1:
             self.rnn.flatten_parameters()
         
@@ -650,22 +664,26 @@ class EncoderText(nn.Module):
         cap_glo1 = torch.sum(features_k_softmax1 * cap_emb, dim=1) # (5bs,dim) ### 这里不太对得上啊，文本模态从5bd到bs
 
         features_in2 = self.linear_ESA2(cap_rank_mul)
+        features_in2 = features_in2 / self.tau_selective
         features_in2 = features_in2.masked_fill(posmask == 0,-10000)
         features_k_softmax2 = nn.Softmax(dim=1)(features_in2-torch.max(features_in2,dim=1)[0].unsqueeze(1)) 
         cap_glo2 = torch.sum(features_k_softmax2 * cap_emb, dim=1) 
 
         features_in3 = self.linear_ESA3(cap_rank_mul)
+        features_in3 = features_in3 / self.tau_comprehensive
         features_in3 = features_in3.masked_fill(posmask == 0,-10000)
         features_k_softmax3 = nn.Softmax(dim=1)(features_in3-torch.max(features_in3,dim=1)[0].unsqueeze(1)) 
         cap_glo3 = torch.sum(features_k_softmax3 * cap_emb, dim=1) 
 
         features_in4 = self.linear_ESA4(cap_rank_mul)
+        # features_in4 = features_in4 + cap_rank_mul  # 残差
         features_in4 = features_in4.masked_fill(posmask == 0,-10000)
         features_k_softmax4 = nn.Softmax(dim=1)(features_in4-torch.max(features_in4,dim=1)[0].unsqueeze(1)) 
         cap_glo4 = torch.sum(features_k_softmax4 * cap_emb, dim=1) 
 
         cap_glo_cro = x = torch.stack((cap_glo1,cap_glo2,cap_glo3,cap_glo4), dim=1)
-        cap_glo_cro = nn.Softmax(dim=1)(cap_glo_cro) + cap_glo_cro
+        cap_glo_r = cap_glo_cro
+        cap_glo_cro = nn.Softmax(dim=1)(cap_glo_cro) + cap_glo_cro 
         cap_glo_cro = l2norm(cap_glo_cro) # (bs,4,dim)
 
         cap_glo = torch.sum(cap_glo_cro,dim=1)
@@ -676,9 +694,9 @@ class EncoderText(nn.Module):
         
         out = l2norm(out)
         
-        residual = out
+        cap_ori = l2norm(cap_emb)
 
-        return out, attn, residual
+        return out, attn, cap_ori
         
 
     

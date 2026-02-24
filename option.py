@@ -29,6 +29,9 @@ parser.add_argument('--wemb_type', default='none', choices=('glove','fasttext','
 parser.add_argument('--margin', default=0.1, type=float, help='Rank loss margin')
 parser.add_argument('--dropout', default=0.0, type=float, help='Dropout rate')
 parser.add_argument('--max_violation', action='store_true', help='Use max instead of sum in the rank loss')
+parser.add_argument('--tau_selective', default=0.8, type=float, help='tau_selective')
+parser.add_argument('--tau_comprehensive', default=1.5, type=float, help='tau_comprehensive')
+
 
 # Attention parameters
 parser.add_argument('--img_attention', action='store_true', help='Use self attention on images/videos')
@@ -59,6 +62,7 @@ parser.add_argument('--ckpt2', default='', type=str, metavar='PATH', help='path 
 parser.add_argument('--eval_on_gpu', action='store_true', help='Evaluate on GPU (default: CPU)')
 
 # customized settings
+parser.add_argument('--seed', default=42, type=int, help='Random seed')
 parser.add_argument('--warm_epoch', default=30, type=int, help='warm up epochs')
 parser.add_argument('--remark', type=str)
 parser.add_argument('--lr_scheduler', type=str, default='cosine')

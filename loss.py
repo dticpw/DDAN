@@ -156,30 +156,30 @@ class TripletLoss(nn.Module):
         losses['i2t_loss'] = i2t_loss 
         loss += i2t_loss + t2i_loss
         
-        # if self.div_weight > 0.:
-        #     div_loss = self.diversity_loss(img_r, self.img_num_embeds) + \
-        #         self.diversity_loss(txt_r, self.txt_num_embeds)
-        #     loss += self.div_weight * div_loss
-        #     losses['div_loss'] = div_loss
+        if self.div_weight > 0.:
+            div_loss = self.diversity_loss(img_r, self.img_num_embeds) + \
+                self.diversity_loss(txt_r, self.txt_num_embeds)
+            loss += self.div_weight * div_loss
+            losses['div_loss'] = div_loss
         
-        # # domain discrepancy loss
-        # if self.mmd_weight > 0.: # 1
-        #     mmd_loss = self.mmd_rbf_loss(img_embs, txt_embs, gamma=0.5)
-        #     loss += self.mmd_weight * mmd_loss
-        #     losses['mmd_loss'] = mmd_loss
+        # domain discrepancy loss
+        if self.mmd_weight > 0.: # 1
+            mmd_loss = self.mmd_rbf_loss(img_embs, txt_embs, gamma=0.5)
+            loss += self.mmd_weight * mmd_loss
+            losses['mmd_loss'] = mmd_loss
             
-        # ### 1121 img_r错了，应该是img_emb
-        # if self.unif_weight > 0.: # 1
-        #     unif_img = l2norm(img_r) if self.unif_residual else img_embs # unif_residual # r是原始的，out是残差过的
-        #     unif_txt = l2norm(txt_r) if self.unif_residual else txt_embs
-        #     unif_loss = self.batchwise_uniformity_loss(unif_img.reshape(-1, self.img_num_embeds, unif_img.shape[-1]), self.img_num_embeds) + \
-        #         self.batchwise_uniformity_loss(unif_txt.reshape(-1, self.txt_num_embeds, unif_txt.shape[-1]), self.txt_num_embeds)
-        #     loss += self.unif_weight * unif_loss
-        #     losses['unif_loss'] = unif_loss
+        ### 1121 img_r错了，应该是img_emb
+        if self.unif_weight > 0.: # 1
+            unif_img = l2norm(img_r) if self.unif_residual else img_embs # unif_residual # r是原始的，out是残差过的
+            unif_txt = l2norm(txt_r) if self.unif_residual else txt_embs
+            unif_loss = self.batchwise_uniformity_loss(unif_img.reshape(-1, self.img_num_embeds, unif_img.shape[-1]), self.img_num_embeds) + \
+                self.batchwise_uniformity_loss(unif_txt.reshape(-1, self.txt_num_embeds, unif_txt.shape[-1]), self.txt_num_embeds)
+            loss += self.unif_weight * unif_loss
+            losses['unif_loss'] = unif_loss
             
-        # if self.qreg_weight > 0. and (img_query is not None): # 0
-        #     qreg = self.query_regularizer(img_query, txt_query)
-        #     loss += self.qreg_weight * qreg
-        #     losses['query_regularizer'] = qreg
+        if self.qreg_weight > 0. and (img_query is not None): # 0
+            qreg = self.query_regularizer(img_query, txt_query)
+            loss += self.qreg_weight * qreg
+            losses['query_regularizer'] = qreg
 
         return loss, losses
